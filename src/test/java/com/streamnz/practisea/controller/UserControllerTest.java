@@ -1,32 +1,43 @@
 package com.streamnz.practisea.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.streamnz.practisea.model.dto.UserCreateRequest;
-import com.streamnz.practisea.model.dto.UserUpdateWalletRequest;
+import com.streamnz.practisea.model.dto.UserSearchRequest;
+import com.streamnz.practisea.model.po.User;
+import com.streamnz.practisea.model.vo.UserPageSearchVO;
 import com.streamnz.practisea.model.vo.UserVO;
 import com.streamnz.practisea.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
+ * TDD Unit Tests for User Search API
+ * 展示TDD开发思路：先写测试，再写实现
+ * 
  * @Author cheng hao
  * @Date 26/09/2025 21:08
  */
 @ExtendWith(MockitoExtension.class)
+@DisplayName("用户搜索接口 TDD 测试")
 class UserControllerTest {
 
     @Mock
@@ -40,110 +51,80 @@ class UserControllerTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(userController).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(userController)
+                .setControllerAdvice(new com.streamnz.practisea.Exception.GlobalExceptionHandler())
+                .build();
         objectMapper = new ObjectMapper();
     }
 
     @Test
-    void queryUserDetail_Success() throws Exception {
-        // Given
-        Long userId = 1L;
-        UserVO expectedUser = createTestUserVO();
-        when(userService.queryUserDetail(userId)).thenReturn(expectedUser);
+    @DisplayName("Given 有效搜索条件, When 搜索用户, Then 返回分页结果")
+    void givenValidSearchRequest_whenSearchUsers_thenReturnPaginatedResults() throws Exception {
+        // Given - 准备测试数据
+        UserSearchRequest request = createSearchRequest();
+        UserPageSearchVO expectedResult = createPageResult();
+        when(userService.pageConditionQuery(any(UserSearchRequest.class))).thenReturn(expectedResult);
 
-        // When & Then
-        mockMvc.perform(get("/api/v1/users/detail")
-                        .param("userId", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.username").value("testuser"))
-                .andExpect(jsonPath("$.email").value("test@example.com"));
-    }
-
-    @Test
-    void queryUserDetail_InvalidUserId() throws Exception {
-        // When & Then
-        mockMvc.perform(get("/api/v1/users/detail")
-                        .param("userId", "invalid"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void createUser_Success() throws Exception {
-        // Given
-        UserCreateRequest request = createTestUserCreateRequest();
-        UserVO expectedUser = createTestUserVO();
-        when(userService.createUser(any(UserCreateRequest.class))).thenReturn(expectedUser);
-
-        // When & Then
-        mockMvc.perform(post("/api/v1/users/create")
+        // When & Then - 执行测试并验证结果
+        mockMvc.perform(post("/api/v1/users/search")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.username").value("testuser"))
-                .andExpect(jsonPath("$.email").value("test@example.com"));
+                .andExpect(jsonPath("$.users").isArray())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.currentPage").value(0));
+
+        // 验证服务层方法被调用
+        verify(userService, times(1)).pageConditionQuery(any(UserSearchRequest.class));
     }
 
     @Test
-    void createUser_InvalidRequest() throws Exception {
+    @DisplayName("Given 空搜索条件, When 搜索用户, Then 返回默认分页结果")
+    void givenEmptySearchRequest_whenSearchUsers_thenReturnDefaultResults() throws Exception {
         // Given
-        UserCreateRequest invalidRequest = new UserCreateRequest();
-        invalidRequest.setUsername(""); // Invalid: empty username
-        invalidRequest.setEmail("invalid-email"); // Invalid: wrong email format
-        invalidRequest.setPassword("123"); // Invalid: too short password
+        UserSearchRequest request = new UserSearchRequest();
+        UserPageSearchVO expectedResult = createEmptyPageResult();
+        when(userService.pageConditionQuery(any(UserSearchRequest.class))).thenReturn(expectedResult);
 
         // When & Then
-        mockMvc.perform(post("/api/v1/users/create")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(invalidRequest)))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void updateUser_Success() throws Exception {
-        // Given
-        UserUpdateWalletRequest request = createTestUserUpdateRequest();
-        UserVO expectedUser = createTestUserVO();
-        when(userService.updateUserWallet(any(UserUpdateWalletRequest.class))).thenReturn(expectedUser);
-
-        // When & Then
-        mockMvc.perform(put("/api/v1/users/update")
+        mockMvc.perform(post("/api/v1/users/search")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.walletAddress").value("0x1234567890abcdef"));
+                .andExpect(jsonPath("$.users").isArray())
+                .andExpect(jsonPath("$.totalElements").value(0));
+
+        verify(userService, times(1)).pageConditionQuery(any(UserSearchRequest.class));
     }
 
 
-    // Helper methods
-    private UserVO createTestUserVO() {
-        UserVO userVO = new UserVO();
-        userVO.setId(1L);
-        userVO.setUsername("testuser");
-        userVO.setEmail("test@example.com");
-        userVO.setScore(100);
-        userVO.setWalletAddress("0x1234567890abcdef");
-        userVO.setWalletType("ETH");
-        userVO.setBindTime(LocalDateTime.now());
-        return userVO;
-    }
-
-    private UserCreateRequest createTestUserCreateRequest() {
-        UserCreateRequest request = new UserCreateRequest();
+    // 测试数据构建方法
+    private UserSearchRequest createSearchRequest() {
+        UserSearchRequest request = new UserSearchRequest();
         request.setUsername("testuser");
-        request.setEmail("test@example.com");
-        request.setPassword("Test123456");
-        request.setBindTime(LocalDateTime.now());
+        request.setPageNumber(0);
+        request.setPageSize(10);
+        request.setSortBy("id");
+        request.setSortOrder("asc");
         return request;
     }
 
-    private UserUpdateWalletRequest createTestUserUpdateRequest() {
-        UserUpdateWalletRequest request = new UserUpdateWalletRequest();
-        request.setUserId(1L);
-        request.setWalletAddress("0x1234567890abcdef");
-        request.setWalletType("ETH");
-        return request;
+    private UserPageSearchVO createPageResult() {
+        User user = new User();
+        user.setId(1L);
+        user.setUsername("testuser");
+        user.setEmail("test@example.com");
+        user.setScore(100);
+        user.setBindTime(LocalDateTime.now().minusDays(1));
+
+        List<User> users = Collections.singletonList(user);
+        Page<User> page = new PageImpl<>(users, PageRequest.of(0, 10), 1);
+        return new UserPageSearchVO(page);
+    }
+
+    private UserPageSearchVO createEmptyPageResult() {
+        Page<User> page = new PageImpl<>(Collections.emptyList(), PageRequest.of(0, 10), 0);
+        return new UserPageSearchVO(page);
     }
 }
